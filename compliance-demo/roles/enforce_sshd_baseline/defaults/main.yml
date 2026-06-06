@@ -1,0 +1,88 @@
+---
+# enforce_sshd_baseline :: defaults
+#
+# The desired-state SSH baseline. These are the settings the role enforces and
+# that EDA will remediate back to whenever drift is detected.
+#
+# Keep this list small and high-signal for the demo. In a real engagement this
+# would be the customer's full CIS / internal hardening standard, sourced from
+# Hiera today and from group_vars/Vault after migration.
+
+# A list of sshd_config directives to enforce. Each item is enforced verbatim
+# using a key/value match, so it works identically on RHEL, Ubuntu, and SUSE.
+sshd_baseline:
+  - key: "PermitRootLogin"
+    value: "no"
+  - key: "PasswordAuthentication"
+    value: "no"
+  - key: "X11Forwarding"
+    value: "no"
+  - key: "MaxAuthTries"
+    value: "4"
+  - key: "ClientAliveInterval"
+    value: "300"
+  - key: "ClientAliveCountMax"
+    value: "0"
+  - key: "Protocol"
+    value: "2"
+
+# Path to sshd_config — same on RHEL/Ubuntu/SUSE, but overridable per-group.
+sshd_config_path: "/etc/ssh/sshd_config"
+
+# Service name differs by distro family; resolved in tasks/main.yml.
+# (RHEL/SUSE: sshd ; Debian/Ubuntu: ssh — both aliased, but we resolve to be safe.)
+sshd_service_name: "{{ _sshd_service_resolved | default('sshd') }}"
+
+# When true, the role only reports drift and does NOT change anything.
+# EDA flips this to false to actually remediate. Useful for the "audit-only"
+# scan beat of the demo.
+sshd_check_only: false
+
+# Validate the config with `sshd -t` before restarting. Prevents a bad edit
+# from taking SSH down — important to call out to a security-minded customer.
+sshd_validate_before_restart: true
+
+# ---------------------------------------------------------------------------
+# WINDOWS BASELINE
+# ---------------------------------------------------------------------------
+# The Windows equivalent of the SSH hardening baseline. Each registry item has:
+#   key        - a friendly name used in drift reports
+#   type       - 'registry' (compared/enforced via win_regedit / win_reg_stat)
+#   path       - registry key path
+#   name       - value name under that path
+#   value      - desired value
+#   data_type  - registry type for enforcement (default 'dword')
+#
+# These mirror common CIS Windows controls for remote access. In a real
+# engagement this list comes from the customer's CIS/STIG Windows profile.
+windows_baseline:
+  - key: "RDP_NLA_required"
+    type: registry
+    path: 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+    name: UserAuthentication
+    value: 1                 # 1 = NLA required
+    data_type: dword
+
+  - key: "RDP_min_encryption_high"
+    type: registry
+    path: 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp'
+    name: MinEncryptionLevel
+    value: 3                 # 3 = High
+    data_type: dword
+
+  - key: "SMBv1_server_disabled"
+    type: registry
+    path: 'HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters'
+    name: SMB1
+    value: 0                 # 0 = SMBv1 disabled
+    data_type: dword
+
+  - key: "LSA_restrict_anonymous"
+    type: registry
+    path: 'HKLM:\System\CurrentControlSet\Control\Lsa'
+    name: RestrictAnonymous
+    value: 1
+    data_type: dword
+
+# Enforce Windows Firewall on all profiles (uses community.windows.win_firewall).
+windows_enforce_firewall: true

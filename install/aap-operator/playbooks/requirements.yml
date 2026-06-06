@@ -1,0 +1,7 @@
+---
+# requirements.yml — collections needed by install_aap.yml
+# Install with: ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: kubernetes.core
+    version: ">=3.0.0"
+# Python dependency (install separately): pip install kubernetes

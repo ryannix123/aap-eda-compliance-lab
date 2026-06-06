@@ -1,0 +1,20 @@
+---
+# requirements.yml
+# Install with:
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  # Event-Driven Ansible event sources (journald, file_watch, webhook)
+  - name: ansible.eda
+    version: ">=1.4.0"
+  # ServiceNow ITSM integration (incident creation in the audit step)
+  - name: servicenow.itsm
+    version: ">=2.5.0"
+  # Core posix/builtin utilities used by the role
+  - name: ansible.posix
+    version: ">=1.5.0"
+  # Windows modules: win_regedit, win_service, win_reg_stat, win_service_info
+  - name: ansible.windows
+    version: ">=2.3.0"
+  # community.windows for win_firewall
+  - name: community.windows
+    version: ">=2.2.0"

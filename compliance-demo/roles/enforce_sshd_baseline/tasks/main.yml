@@ -1,0 +1,25 @@
+---
+# enforce_sshd_baseline :: tasks/main.yml  (dispatcher)
+#
+# One role, every platform. This file detects the OS and hands off to the right
+# implementation. The Linux path enforces an OpenSSH baseline; the Windows path
+# enforces an equivalent RDP/WinRM + security-policy baseline. Both publish a
+# common `baseline_drift` fact so the calling playbook logs a uniform audit
+# record regardless of platform — that's the slide-5 + slide-9 story in code.
+
+- name: Assert this is a supported platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['RedHat', 'Debian', 'Suse', 'Windows']
+    fail_msg: >-
+      Unsupported OS family '{{ ansible_facts['os_family'] }}'.
+      Supported: RedHat, Debian, Suse, Windows.
+    success_msg: "OS family {{ ansible_facts['os_family'] }} is supported."
+
+- name: Enforce the Linux (OpenSSH) baseline
+  ansible.builtin.include_tasks: linux.yml
+  when: ansible_facts['os_family'] in ['RedHat', 'Debian', 'Suse']
+
+- name: Enforce the Windows baseline
+  ansible.builtin.include_tasks: windows.yml
+  when: ansible_facts['os_family'] == 'Windows'

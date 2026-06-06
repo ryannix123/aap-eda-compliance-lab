@@ -1,0 +1,138 @@
+---
+# install_aap.yml
+#
+# Installs the Ansible Automation Platform Operator and an AAP-with-EDA instance
+# on an OpenShift Container Platform Single Node (tested target: OCP 4.21 SNO).
+#
+# What it does:
+#   1. Applies the operator Subscription (channel stable-2.6).
+#   2. Waits for the operator CSV to reach 'Succeeded'.
+#   3. Applies the AnsibleAutomationPlatform CR (controller + EDA + hub).
+#   4. Waits for the gateway to come up.
+#   5. Prints the gateway URL and the generated admin password.
+#
+# Prerequisites on the control machine (where you run this):
+#   - oc logged in to the SNO as cluster-admin (the modules use your kubeconfig)
+#   - collection: kubernetes.core  (see requirements.yml)
+#   - Python: kubernetes  (pip install kubernetes)
+#
+# Run:
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook install_aap.yml
+#
+# To override the RWX storage class for hub without editing the manifest:
+#   ansible-playbook install_aap.yml -e rwx_storage_class=ocs-storagecluster-cephfs
+#
+# To skip hub entirely if you have no RWX storage:
+#   ansible-playbook install_aap.yml -e hub_disabled=true
+
+- name: Install AAP with EDA on OpenShift SNO
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    aap_namespace: aap
+    manifests_dir: "{{ playbook_dir }}/../manifests"
+    # Set this to a ReadWriteMany storage class on your SNO, or pass -e.
+    rwx_storage_class: "ocs-storagecluster-cephfs"
+    hub_disabled: false
+    # How long to wait for the operator and gateway (seconds).
+    csv_timeout: 600
+    gateway_timeout: 1200
+
+  tasks:
+    - name: Apply namespace, operator group, and subscription
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ manifests_dir }}/01-operator-subscription.yaml"
+
+    - name: Wait for the operator CSV to succeed
+      kubernetes.core.k8s_info:
+        api_version: operators.coreos.com/v1alpha1
+        kind: ClusterServiceVersion
+        namespace: "{{ aap_namespace }}"
+      register: _csv
+      retries: "{{ (csv_timeout / 15) | int }}"
+      delay: 15
+      until: >-
+        _csv.resources
+        | selectattr('metadata.name', 'search', 'aap')
+        | selectattr('status.phase', 'defined')
+        | selectattr('status.phase', 'eq', 'Succeeded')
+        | list | length > 0
+
+    - name: Render the AAP CR with homelab overrides
+      ansible.builtin.set_fact:
+        _aap_cr: >-
+          {{ lookup('ansible.builtin.file', manifests_dir + '/02-aap-instance.yaml')
+             | regex_replace('<read-write-many-storage-class>', rwx_storage_class) }}
+
+    - name: Apply the AnsibleAutomationPlatform CR (controller + EDA + hub)
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ _aap_cr | from_yaml }}"
+
+    - name: Disable hub when no RWX storage is available
+      kubernetes.core.k8s:
+        state: patched
+        api_version: aap.ansible.com/v1alpha1
+        kind: AnsibleAutomationPlatform
+        name: aap
+        namespace: "{{ aap_namespace }}"
+        definition:
+          spec:
+            hub:
+              disabled: true
+      when: hub_disabled | bool
+
+    - name: Wait for the platform gateway Route to be created
+      kubernetes.core.k8s_info:
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: "{{ aap_namespace }}"
+      register: _routes
+      retries: "{{ (gateway_timeout / 20) | int }}"
+      delay: 20
+      until: >-
+        _routes.resources
+        | selectattr('metadata.name', 'search', 'aap')
+        | list | length > 0
+
+    - name: Identify the gateway Route host
+      ansible.builtin.set_fact:
+        _gateway_host: >-
+          {{ (_routes.resources
+              | selectattr('metadata.name', 'search', 'aap-gateway')
+              | map(attribute='spec.host') | list
+              | default([]))[0]
+             | default((_routes.resources
+                        | selectattr('metadata.name', 'search', 'aap')
+                        | map(attribute='spec.host') | list)[0]) }}
+
+    - name: Fetch the generated admin password secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ aap_namespace }}"
+        name: aap-admin-password
+      register: _admin_secret
+      retries: 20
+      delay: 15
+      until: _admin_secret.resources | length > 0
+
+    - name: Decode the admin password
+      ansible.builtin.set_fact:
+        _admin_password: "{{ _admin_secret.resources[0].data.password | b64decode }}"
+      when: _admin_secret.resources | length > 0
+
+    - name: Show how to reach your new AAP instance
+      ansible.builtin.debug:
+        msg:
+          - "================ AAP IS READY ================"
+          - "Gateway URL : https://{{ _gateway_host }}"
+          - "Username    : admin"
+          - "Password    : {{ _admin_password | default('(secret not ready yet — see note)') }}"
+          - "If the password shows as not ready, run:"
+          - "  oc get secret aap-admin-password -n aap -o jsonpath='{.data.password}' | base64 -d"
+          - "=============================================="

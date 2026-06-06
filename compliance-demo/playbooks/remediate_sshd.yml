@@ -1,0 +1,81 @@
+---
+# remediate_sshd.yml
+#
+# This is the playbook EDA fires when it detects SSH drift. It is also the
+# playbook a scheduled AAP job template would run for periodic enforcement.
+# Same artifact, two trigger mechanisms — that's the slide-6 story.
+#
+# Run modes:
+#   - Normal (default): detect drift, remediate, restart if needed, log result.
+#   - Audit only: pass -e sshd_check_only=true to report drift WITHOUT changing.
+
+- name: Enforce the security baseline and record the outcome
+  hosts: "{{ target_hosts | default('all') }}"
+  # become applies to Linux (sudo). The win_* modules handle privilege
+  # themselves, so we gate play-level become off for Windows connections.
+  # ansible_connection is known at play start from inventory (winrm/psrp/ssh).
+  become: "{{ ansible_connection not in ['winrm', 'psrp'] }}"
+  gather_facts: true
+
+  vars:
+    # Where to record the audit event. Wire these to AAP credentials/EE in prod.
+    servicenow_enabled: "{{ lookup('ansible.builtin.env', 'SNOW_INSTANCE') | length > 0 }}"
+
+  roles:
+    - role: enforce_sshd_baseline
+
+  post_tasks:
+    - name: Summarise what happened on this host
+      ansible.builtin.set_fact:
+        _remediation_summary:
+          host: "{{ inventory_hostname }}"
+          os: "{{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+          drift_found: "{{ (baseline_drift | default([])) | map(attribute='key') | list }}"
+          drift_count: "{{ (baseline_drift | default([])) | length }}"
+          action: "{{ 'remediated' if not (sshd_check_only | bool) and (baseline_drift | default([]) | length > 0) else ('drift-detected (audit only)' if (sshd_check_only | bool) else 'no-op (already compliant)') }}"
+          timestamp: "{{ now(utc=true).isoformat() }}"
+
+    - name: Show the audit summary
+      ansible.builtin.debug:
+        var: _remediation_summary
+
+    # --- ServiceNow logging -----------------------------------------------------
+    # Only opens a ticket when drift was actually found and remediated. In the
+    # POC, if ServiceNow isn't wired yet, this block is skipped and the local
+    # log task below stands in for it (mention that in the demo).
+    - name: Open a ServiceNow incident recording the drift + remediation
+      servicenow.itsm.incident:
+        instance:
+          host: "{{ lookup('ansible.builtin.env', 'SNOW_INSTANCE') }}"
+          username: "{{ lookup('ansible.builtin.env', 'SNOW_USERNAME') }}"
+          password: "{{ lookup('ansible.builtin.env', 'SNOW_PASSWORD') }}"
+        state: new
+        short_description: >-
+          SSH baseline drift auto-remediated on {{ inventory_hostname }}
+        description: >-
+          EDA detected drift on {{ _remediation_summary.host }}
+          ({{ _remediation_summary.os }}).
+          Directives out of compliance: {{ _remediation_summary.drift_found | join(', ') }}.
+          Action taken: {{ _remediation_summary.action }} at {{ _remediation_summary.timestamp }}.
+        impact: low
+        urgency: low
+        caller: ansible.automation
+      delegate_to: localhost
+      become: false
+      when:
+        - servicenow_enabled | bool
+        - (baseline_drift | default([])) | length > 0
+        - not (sshd_check_only | bool)
+
+    # --- Local fallback log (always) --------------------------------------------
+    # A durable, greppable record on the control node. Stands in for ServiceNow
+    # in environments where ITSM isn't connected yet.
+    - name: Append the audit event to a local JSON-lines log
+      ansible.builtin.lineinfile:
+        path: "/var/log/sshd_compliance_audit.log"
+        line: "{{ _remediation_summary | to_json }}"
+        create: true
+        mode: "0640"
+      delegate_to: localhost
+      become: true
+      run_once: false

@@ -1,0 +1,110 @@
+---
+# enforce_sshd_baseline :: tasks/windows.yml
+#
+# Windows path. The Linux side hardens OpenSSH; on Windows the equivalent
+# "remote access + security policy" baseline lives in the registry and in
+# service/firewall state. We use the same detect -> report -> (stop if audit) ->
+# remediate flow so the demo narrative is identical across platforms.
+#
+# Baseline enforced here (see defaults: windows_baseline):
+#   - RDP requires Network Level Authentication (NLA)            [registry]
+#   - Minimum RDP encryption level = High                        [registry]
+#   - SMBv1 client/server disabled                              [feature/registry]
+#   - WinRM service running + startup automatic                  [service]
+#   - Windows Firewall enabled on all profiles                   [firewall]
+#
+# Modules used: ansible.windows (win_regedit, win_service_info, win_service,
+# win_powershell) and community.windows where noted. All are in the certified
+# ansible.windows / community.windows collections.
+
+- name: Read the effective value of each registry-based baseline item
+  ansible.windows.win_reg_stat:
+    path: "{{ item.path }}"
+    name: "{{ item.name }}"
+  loop: "{{ windows_baseline | selectattr('type', 'eq', 'registry') | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: _win_reg_state
+  check_mode: false
+
+- name: Read WinRM service state
+  ansible.windows.win_service_info:
+    name: WinRM
+  register: _win_winrm
+  check_mode: false
+
+- name: Build an effective-state map for registry items
+  ansible.builtin.set_fact:
+    _win_effective_map: >-
+      {{ dict(_win_reg_state.results
+              | map(attribute='item.key')
+              | zip(_win_reg_state.results
+                    | map(attribute='value') )) }}
+
+- name: Compute registry drift
+  # Same pattern as Linux: a baseline item drifts if its effective value
+  # (as a string) doesn't match the desired value.
+  ansible.builtin.set_fact:
+    windows_drift: "{{ windows_drift | default([]) + [item] }}"
+  loop: "{{ windows_baseline | selectattr('type', 'eq', 'registry') | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: >-
+    (_win_effective_map[item.key] | default('__missing__') | string)
+    != (item.value | string)
+
+- name: Compute WinRM service drift
+  ansible.builtin.set_fact:
+    windows_drift: "{{ windows_drift | default([]) + [_winrm_item] }}"
+  vars:
+    _winrm_item: { key: "WinRM_running", type: "service", desired: "running" }
+  when: >-
+    (_win_winrm.services | length == 0) or
+    (_win_winrm.services[0].state != 'running')
+
+- name: Initialise drift list when fully compliant
+  ansible.builtin.set_fact:
+    windows_drift: "{{ windows_drift | default([]) }}"
+
+- name: Publish a platform-neutral drift fact for the audit summary
+  ansible.builtin.set_fact:
+    baseline_drift: "{{ windows_drift | default([]) }}"
+    baseline_platform: "windows"
+
+- name: Report compliance status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'COMPLIANT — Windows baseline matches' if (windows_drift | length == 0)
+         else 'DRIFT DETECTED on: ' + (windows_drift | map(attribute='key') | join(', ')) }}
+
+- name: Stop here if running in check-only mode
+  ansible.builtin.meta: end_host
+  when: sshd_check_only | bool
+
+# --- Remediate: enforce every registry directive (idempotent) ------------------
+- name: Enforce each registry-based baseline item
+  ansible.windows.win_regedit:
+    path: "{{ item.path }}"
+    name: "{{ item.name }}"
+    data: "{{ item.value }}"
+    type: "{{ item.data_type | default('dword') }}"
+    state: present
+  loop: "{{ windows_baseline | selectattr('type', 'eq', 'registry') | list }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"
+  notify: Restart affected windows services
+
+- name: Ensure WinRM service is running and automatic
+  ansible.windows.win_service:
+    name: WinRM
+    state: started
+    start_mode: auto
+
+- name: Ensure Windows Firewall is enabled on all profiles
+  community.windows.win_firewall:
+    state: enabled
+    profiles:
+      - Domain
+      - Private
+      - Public
+  when: windows_enforce_firewall | bool

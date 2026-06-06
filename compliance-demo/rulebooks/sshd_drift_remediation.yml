@@ -1,0 +1,124 @@
+---
+# sshd_drift_remediation.yml  ::  Ansible Rulebook (Event-Driven Ansible)
+#
+# This is the keystone of the slide-6 / slide-9 story: instead of waiting for a
+# 30-minute convergence window, a rulebook listens for an EVENT that indicates
+# SSH config may have drifted, and fires remediation the instant it happens.
+#
+# It defines THREE event sources so the demo works in whatever environment is
+# available. In a real deployment you'd typically keep one. From most to least
+# "live":
+#
+#   1. journald  — react the moment sshd is restarted/reloaded on the host
+#                  (i.e. someone changed the config and bounced the service).
+#   2. file watch — react when /etc/ssh/sshd_config is modified on disk.
+#   3. webhook    — react to an external signal: a monitoring alert (e.g. a SIEM
+#                  or Wazuh/Tenable check), a ServiceNow change record, or a
+#                  Git push to the config repo can POST here.
+#
+# Run with:
+#   ansible-rulebook -i inventory/hosts.ini \
+#     --rulebook rulebooks/sshd_drift_remediation.yml \
+#     --verbose
+#
+# In AAP, this is registered as a Rulebook Activation against your project +
+# decision environment, and the "run_job_template" action below targets the
+# job template that wraps playbooks/remediate_sshd.yml.
+
+- name: Continuously enforce the SSH hardening baseline on drift
+  hosts: linux_fleet
+
+  ## --- Event sources -------------------------------------------------------
+  sources:
+    # (1) Watch the systemd journal on the managed host for sshd restarts.
+    - name: sshd_journal
+      ansible.eda.journald:
+        match: "_SYSTEMD_UNIT=sshd.service"
+
+    # (2) Watch the config file directly for any modification.
+    - name: sshd_config_file
+      ansible.eda.file_watch:
+        path: /etc/ssh
+        recursive: false
+        ignore_regexes: ['.*\.swp$', '.*~$']
+
+    # (3) Accept external drift signals (SIEM alert, ServiceNow, Git webhook).
+    #     POST JSON like: {"alert":"sshd_drift","host":"web01","source":"siem"}
+    - name: external_signal
+      ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+
+  ## --- Rules ---------------------------------------------------------------
+  rules:
+    # Rule 1: sshd service was restarted -> someone may have changed config.
+    #         Re-assert the baseline immediately.
+    - name: Remediate after an sshd service restart
+      condition: >-
+        event.journald.message is defined and
+        ('Started' in event.journald.message or 'Stopped' in event.journald.message)
+        and 'ssh' in (event.journald.SYSLOG_IDENTIFIER | default(''))
+      throttle:
+        once_within: 30 seconds
+        group_by_attributes:
+          - event.meta.hosts
+      action:
+        run_job_template:
+          name: "SSHD Baseline - Remediate"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              trigger_reason: "sshd service restart observed via journald"
+
+    # Rule 2: the sshd_config file changed on disk -> re-assert the baseline.
+    - name: Remediate after sshd_config file modification
+      condition: >-
+        event.change is defined and
+        event.src_path is search("sshd_config")
+      throttle:
+        once_within: 30 seconds
+        group_by_attributes:
+          - event.meta.hosts
+      action:
+        run_job_template:
+          name: "SSHD Baseline - Remediate"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              trigger_reason: "sshd_config modified on disk (file_watch)"
+
+    # Rule 3: an external system says this host has drifted -> remediate it.
+    - name: Remediate on external drift alert
+      condition: event.payload.alert == "sshd_drift"
+      action:
+        run_job_template:
+          name: "SSHD Baseline - Remediate"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              trigger_reason: "external alert from {{ event.payload.source | default('unknown') }}"
+              target_hosts: "{{ event.payload.host | default('linux_fleet') }}"
+
+    # Rule 4: WINDOWS drift signal. Windows has no journald/inotify, so the
+    #         realistic event source is a webhook fed by Windows Event
+    #         Forwarding, a SIEM (Sentinel/Splunk), or Defender. A change to a
+    #         monitored registry key or RDP/security policy POSTs here.
+    #         POST e.g.: {"alert":"win_baseline_drift","host":"win2022-demo","control":"RDP_NLA_required"}
+    - name: Remediate Windows baseline drift on external alert
+      condition: event.payload.alert == "win_baseline_drift"
+      action:
+        run_job_template:
+          name: "SSHD Baseline - Remediate"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              trigger_reason: >-
+                Windows baseline drift ({{ event.payload.control | default('unspecified') }})
+                reported by {{ event.payload.source | default('siem') }}
+              target_hosts: "{{ event.payload.host | default('windows_fleet') }}"
+
+  ## NOTE on ansible-rulebook vs AAP:
+  ##   - Standalone `ansible-rulebook` (for local demos without a controller)
+  ##     can swap `run_job_template` for `run_playbook` to call
+  ##     playbooks/remediate_sshd.yml directly. A run_playbook variant is
+  ##     provided in rulebooks/sshd_drift_remediation_standalone.yml.

@@ -1,0 +1,82 @@
+---
+# enforce_sshd_baseline :: tasks/linux.yml
+#
+# Linux path: RHEL, Ubuntu, SUSE. One task file enforces the baseline on all
+# three because ansible.builtin modules abstract away the package manager and
+# init system. Called by tasks/main.yml when os_family is RedHat/Debian/Suse.
+# This is the slide-5 "one playbook set" claim, made real.
+
+- name: Resolve the sshd service name for this OS family
+  ansible.builtin.set_fact:
+    _sshd_service_resolved: >-
+      {{ 'ssh' if ansible_facts['os_family'] == 'Debian' else 'sshd' }}
+
+# --- Detect drift first (always), so we have an auditable before-state ---------
+- name: Read the live value of each baseline directive
+  # `sshd -T` prints the *effective* running config (lowercased keys), which is
+  # more reliable than parsing the file by hand and accounts for includes/defaults.
+  ansible.builtin.command:
+    cmd: "/usr/sbin/sshd -T"
+  changed_when: false
+  register: _sshd_effective
+  check_mode: false
+
+- name: Build a dict of the effective sshd settings
+  ansible.builtin.set_fact:
+    _sshd_effective_map: >-
+      {{ dict(_sshd_effective.stdout_lines
+              | map('regex_replace', '^(\S+)\s+(.*)$', '\1=\2')
+              | map('split', '=', 1)) }}
+
+- name: Compute which baseline directives are currently out of compliance
+  # Loop each baseline directive and compare (case-insensitively) against the
+  # effective value reported by `sshd -T`. sshd -T lowercases both keys and most
+  # values, so we compare lowercased on both sides. Accumulate the drifted ones.
+  ansible.builtin.set_fact:
+    sshd_drift: "{{ sshd_drift | default([]) + [item] }}"
+  loop: "{{ sshd_baseline }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: >-
+    (_sshd_effective_map[item.key | lower] | default('__missing__') | lower)
+    != (item.value | lower)
+
+- name: Initialise drift list when fully compliant
+  ansible.builtin.set_fact:
+    sshd_drift: "{{ sshd_drift | default([]) }}"
+
+- name: Publish a platform-neutral drift fact for the audit summary
+  ansible.builtin.set_fact:
+    baseline_drift: "{{ sshd_drift | default([]) }}"
+    baseline_platform: "linux"
+
+- name: Report compliance status
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'COMPLIANT — sshd matches baseline' if (sshd_drift | length == 0)
+         else 'DRIFT DETECTED on: ' + (sshd_drift | map(attribute='key') | join(', ')) }}
+
+- name: Stop here if running in check-only mode
+  ansible.builtin.meta: end_host
+  when: sshd_check_only | bool
+
+# --- Remediate: enforce every baseline directive (idempotent) ------------------
+- name: Enforce each baseline directive in sshd_config
+  ansible.builtin.lineinfile:
+    path: "{{ sshd_config_path }}"
+    # Match the directive whether commented, mis-valued, or absent.
+    regexp: "^#?\\s*{{ item.key }}\\b.*$"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+    validate: "{{ '/usr/sbin/sshd -t -f %s' if sshd_validate_before_restart else omit }}"
+    backup: true
+  loop: "{{ sshd_baseline }}"
+  loop_control:
+    label: "{{ item.key }} = {{ item.value }}"
+  notify: Restart sshd
+
+- name: Ensure sshd is enabled and running
+  ansible.builtin.service:
+    name: "{{ sshd_service_name }}"
+    state: started
+    enabled: true

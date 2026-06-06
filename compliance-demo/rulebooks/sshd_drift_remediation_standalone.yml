@@ -1,0 +1,49 @@
+---
+# sshd_drift_remediation_standalone.yml
+#
+# A controller-free variant for running the demo with plain `ansible-rulebook`
+# (e.g. on the SNO homelab or a laptop) where there's no AAP job template to
+# call. Uses `run_playbook` to invoke the remediation playbook directly.
+#
+#   ansible-rulebook -i inventory/hosts.ini \
+#     --rulebook rulebooks/sshd_drift_remediation_standalone.yml \
+#     --verbose
+#
+# Trigger it without touching the host by POSTing the webhook:
+#   curl -X POST http://localhost:5000/endpoint \
+#     -H 'Content-Type: application/json' \
+#     -d '{"alert":"sshd_drift","host":"localhost","source":"demo"}'
+
+- name: Continuously enforce the SSH baseline (standalone, no controller)
+  hosts: linux_fleet
+  sources:
+    - name: sshd_config_file
+      ansible.eda.file_watch:
+        path: /etc/ssh
+        recursive: false
+        ignore_regexes: ['.*\.swp$', '.*~$']
+    - name: external_signal
+      ansible.eda.webhook:
+        host: 0.0.0.0
+        port: 5000
+
+  rules:
+    - name: Remediate after sshd_config file modification
+      condition: >-
+        event.change is defined and
+        event.src_path is search("sshd_config")
+      throttle:
+        once_within: 30 seconds
+        group_by_attributes:
+          - event.meta.hosts
+      action:
+        run_playbook:
+          name: playbooks/remediate_sshd.yml
+
+    - name: Remediate on external drift alert
+      condition: event.payload.alert == "sshd_drift"
+      action:
+        run_playbook:
+          name: playbooks/remediate_sshd.yml
+          extra_vars:
+            trigger_reason: "external alert (standalone)"

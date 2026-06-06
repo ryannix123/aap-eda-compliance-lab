@@ -1,0 +1,33 @@
+# Ansible
+*.retry
+*.log
+.vault_pass*
+vault.yml
+*-vault.yml
+
+# Local inventory overrides with real IPs/secrets — keep the template, ignore copies
+inventory/hosts.local.ini
+
+# Collections installed locally
+collections/
+ansible_collections/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets — never commit credentials
+*.pem
+*.key
+*_rsa
+*_rsa.pub
+secrets/
+credentials.yml
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/

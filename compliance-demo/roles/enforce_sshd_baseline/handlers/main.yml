@@ -1,0 +1,19 @@
+---
+# enforce_sshd_baseline :: handlers
+
+- name: Restart sshd
+  ansible.builtin.service:
+    name: "{{ sshd_service_name }}"
+    state: restarted
+  # The lineinfile `validate` already ran `sshd -t`, so by the time we get here
+  # the on-disk config is known-good and this restart is safe.
+
+- name: Restart affected windows services
+  # Bounce the Remote Desktop Services so RDP registry changes (NLA / encryption)
+  # take effect. Guarded so it only runs on Windows hosts.
+  ansible.windows.win_service:
+    name: TermService
+    state: restarted
+  when: ansible_facts['os_family'] == 'Windows'
+  # NOTE: restarting TermService will drop active RDP sessions. In production,
+  # schedule this in a maintenance window or use a gentler reload where possible.
