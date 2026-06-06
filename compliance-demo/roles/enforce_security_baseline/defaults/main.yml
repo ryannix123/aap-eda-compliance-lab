@@ -1,5 +1,5 @@
 ---
-# enforce_sshd_baseline :: defaults
+# enforce_security_baseline :: defaults
 #
 # The desired-state SSH baseline. These are the settings the role enforces and
 # that EDA will remediate back to whenever drift is detected.

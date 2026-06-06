@@ -1,13 +1,6 @@
 # AAP + EDA Compliance Lab
 
-<!--
-  NOTE: The banner image below is hot-linked from a Medium/Miro CDN URL.
-  Before making this repo fully public, replace it with an image you own or
-  are licensed to use (commit it under docs/img/ and reference it relatively),
-  and add proper attribution if it comes from a third party. Hot-linked CDN
-  URLs can break without warning and may carry licensing restrictions.
--->
-![Ansible Automation Platform](https://miro.medium.com/v2/resize:fit:1400/format:webp/0*mgINP92VblNMKmS3.jpg)
+![Red Hat Ansible Automation Platform automating every domain — Linux, Windows, cloud, network, storage, IPAM, hosts, and compliance](docs/img/aap-automate-every-domain.png)
 
 A complete, runnable homelab that demonstrates **continuous, event-driven
 security compliance** with Red Hat Ansible Automation Platform — enforcing a
@@ -77,13 +70,14 @@ aap-eda-compliance-lab/
 │   └── playbooks/install_aap.yml      ← automated install + access details
 ├── compliance-demo/                   ← the cross-platform compliance content
 │   ├── README.md                      ← demo flow, slide-9 storyboard mapping
-│   ├── roles/enforce_sshd_baseline/   ← OS-dispatching role (linux.yml/windows.yml)
+│   ├── roles/enforce_security_baseline/   ← OS-dispatching role (linux.yml/windows.yml)
 │   ├── playbooks/remediate_sshd.yml   ← what EDA fires: enforce + audit log
 │   ├── rulebooks/                      ← EDA rulebooks (AAP + standalone)
 │   ├── inventory/hosts.ini            ← linux_fleet + windows_fleet
 │   └── demo.sh                        ← drives the 5-beat live demo
 └── docs/
-    └── proxmox-build-sheet.md         ← build the 4 managed-host VMs
+    ├── proxmox-build-sheet.md         ← build the 4 managed-host VMs
+    └── img/                            ← banner assets (SVG source + PNG)
 ```
 
 ## Quick start

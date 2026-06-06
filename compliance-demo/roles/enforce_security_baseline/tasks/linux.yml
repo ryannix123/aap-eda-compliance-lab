@@ -1,5 +1,5 @@
 ---
-# enforce_sshd_baseline :: tasks/linux.yml
+# enforce_security_baseline :: tasks/linux.yml
 #
 # Linux path: RHEL, Ubuntu, SUSE. One task file enforces the baseline on all
 # three because ansible.builtin modules abstract away the package manager and

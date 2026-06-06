@@ -1,5 +1,5 @@
 ---
-# enforce_sshd_baseline :: tasks/main.yml  (dispatcher)
+# enforce_security_baseline :: tasks/main.yml  (dispatcher)
 #
 # One role, every platform. This file detects the OS and hands off to the right
 # implementation. The Linux path enforces an OpenSSH baseline; the Windows path

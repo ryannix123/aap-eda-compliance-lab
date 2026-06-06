@@ -1,5 +1,5 @@
 ---
-# enforce_sshd_baseline :: handlers
+# enforce_security_baseline :: handlers
 
 - name: Restart sshd
   ansible.builtin.service:

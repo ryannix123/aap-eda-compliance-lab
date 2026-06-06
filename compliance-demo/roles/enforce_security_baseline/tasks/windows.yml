@@ -1,5 +1,5 @@
 ---
-# enforce_sshd_baseline :: tasks/windows.yml
+# enforce_security_baseline :: tasks/windows.yml
 #
 # Windows path. The Linux side hardens OpenSSH; on Windows the equivalent
 # "remote access + security policy" baseline lives in the registry and in

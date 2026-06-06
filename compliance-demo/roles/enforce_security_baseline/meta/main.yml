@@ -1,13 +1,14 @@
 ---
-# enforce_sshd_baseline :: meta
+# enforce_security_baseline :: meta
 galaxy_info:
-  role_name: enforce_sshd_baseline
+  role_name: enforce_security_baseline
   namespace: redhat_demo
   author: Ryan Nix
   description: >-
-    Enforce and continuously remediate an SSH hardening baseline across
-    RHEL, Ubuntu, and SUSE. Designed to be driven on a schedule by AAP and
-    event-driven by Ansible rulebooks (EDA).
+    Enforce and continuously remediate a security hardening baseline across
+    RHEL, Ubuntu, SUSE, and Windows. On Linux it hardens OpenSSH; on Windows it
+    enforces an RDP/registry security baseline. Designed to be driven on a
+    schedule by AAP and event-driven by Ansible rulebooks (EDA).
   license: MIT
   min_ansible_version: "2.15"
   platforms:
@@ -22,8 +23,8 @@ galaxy_info:
   galaxy_tags:
     - security
     - compliance
-    - ssh
     - hardening
+    - windows
     - cis
 
 dependencies: []

@@ -17,7 +17,7 @@ sshd-compliance/
 ├── demo.sh                               # drives the 5 slide-9 beats on one host
 ├── inventory/hosts.ini                   # the linux_fleet group (RHEL/Ubuntu/SUSE)
 ├── roles/
-│   └── enforce_sshd_baseline/            # the cross-platform hardening role
+│   └── enforce_security_baseline/            # the cross-platform hardening role
 │       ├── defaults/main.yml             # Linux SSH baseline + Windows baseline
 │       ├── tasks/main.yml                # OS dispatcher (Linux vs Windows)
 │       ├── tasks/linux.yml               # OpenSSH baseline: detect + remediate
@@ -176,6 +176,6 @@ This is the production shape and works on an SNO homelab:
 
 ## Customising the baseline
 
-Edit `roles/enforce_sshd_baseline/defaults/main.yml` — `sshd_baseline` is just a
+Edit `roles/enforce_security_baseline/defaults/main.yml` — `sshd_baseline` is just a
 list of `{key, value}` directives. In a real migration this is sourced from the
 customer's CIS profile (today in Hiera; after migration in `group_vars` + Vault).

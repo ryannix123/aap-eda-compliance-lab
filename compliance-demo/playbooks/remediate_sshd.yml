@@ -22,7 +22,7 @@
     servicenow_enabled: "{{ lookup('ansible.builtin.env', 'SNOW_INSTANCE') | length > 0 }}"
 
   roles:
-    - role: enforce_sshd_baseline
+    - role: enforce_security_baseline
 
   post_tasks:
     - name: Summarise what happened on this host
