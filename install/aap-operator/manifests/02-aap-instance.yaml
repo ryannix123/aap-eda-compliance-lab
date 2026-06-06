@@ -1,6 +1,6 @@
 ---
 # 02-aap-instance.yaml
-# The single AnsibleAutomationPlatform CR. The 2.6 operator deploys the gateway,
+# The single AnsibleAutomationPlatform CR. The 2.7 operator deploys the gateway,
 # controller, EDA, and hub from this one resource. Resource requests are tuned
 # DOWN for a homelab SNO so all pods schedule cleanly on one 24-core / 64 GB node
 # that also runs OpenShift's own control plane (and, when you want it, RHOAI).

@@ -6,7 +6,7 @@ AAP-with-EDA instance on a Single Node OpenShift cluster (tested target:
 
 ## What you get
 
-The 2.6 operator deploys everything under one `AnsibleAutomationPlatform` CR and
+The 2.7 operator deploys everything under one `AnsibleAutomationPlatform` CR and
 a unified platform gateway:
 
 - **Automation controller** — job templates, inventories, credentials
@@ -55,7 +55,7 @@ oc get secret aap-admin-password -n aap -o jsonpath='{.data.password}' | base64 
 
 | File | Purpose |
 |------|---------|
-| `manifests/01-operator-subscription.yaml` | Namespace, OperatorGroup, Subscription (channel `stable-2.6`) |
+| `manifests/01-operator-subscription.yaml` | Namespace, OperatorGroup, Subscription (channel `stable-2.7`) |
 | `manifests/02-aap-instance.yaml` | The `AnsibleAutomationPlatform` CR — EDA enabled, homelab-sized |
 | `playbooks/install_aap.yml` | Applies everything, waits for readiness, prints access details |
 | `playbooks/requirements.yml` | `kubernetes.core` collection |

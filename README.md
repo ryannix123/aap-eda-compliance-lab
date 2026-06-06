@@ -1,5 +1,14 @@
 # AAP + EDA Compliance Lab
 
+<!--
+  NOTE: The banner image below is hot-linked from a Medium/Miro CDN URL.
+  Before making this repo fully public, replace it with an image you own or
+  are licensed to use (commit it under docs/img/ and reference it relatively),
+  and add proper attribution if it comes from a third party. Hot-linked CDN
+  URLs can break without warning and may carry licensing restrictions.
+-->
+![Ansible Automation Platform](https://miro.medium.com/v2/resize:fit:1400/format:webp/0*mgINP92VblNMKmS3.jpg)
+
 A complete, runnable homelab that demonstrates **continuous, event-driven
 security compliance** with Red Hat Ansible Automation Platform — enforcing a
 hardening baseline across **RHEL, Ubuntu, SUSE, and Windows** from a single
@@ -41,7 +50,7 @@ ordinary VMs reached over SSH/WinRM across the LAN.
    │   │  24 core / 64 GB / 3060Ti  │     │  10 core / 64 GB │ │
    │   │                            │     │  1 TB NVMe       │ │
    │   │  ┌──────────────────────┐  │     │                  │ │
-   │   │  │ AAP Operator (2.6)   │  │ SSH │  rhel9-demo      │ │
+   │   │  │ AAP Operator (2.7)   │  │ SSH │  rhel9-demo      │ │
    │   │  │  • controller        │──┼─────┼─▶ ubuntu-demo    │ │
    │   │  │  • EDA               │  │WinRM│  suse-demo       │ │
    │   │  │  • hub + gateway     │  │─────┼─▶ win2022-demo   │ │
@@ -122,9 +131,49 @@ the same five beats with plain `ansible-playbook` + `ansible-rulebook`.
 ## A note on accuracy & versions
 
 Resource minimums, operator channels, and CR fields shift between AAP/OCP
-releases. This lab targets **AAP Operator 2.6** (channel `stable-2.6`) and
+releases. This lab targets **AAP Operator 2.7** (channel `stable-2.7`) and
 **OCP 4.21**. Before a production build, re-check the current values in the
-[AAP on OpenShift install docs](https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html-single/installing_on_openshift_container_platform/index).
+[AAP on OpenShift install docs](https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.7/html-single/installing_on_openshift_container_platform/index).
+
+Note that **as of AAP 2.7, Red Hat no longer ships the RPM installer** — the
+only supported install paths are the containerized installer and the OpenShift
+operator (used here). Anyone still on an RPM-based AAP must migrate. That's a
+useful nudge in a consolidation conversation: "stay where you are" isn't a
+long-term option for legacy installs either.
+
+## Roadmap: Automation Orchestrator (Technology Preview)
+
+This lab runs entirely on **generally available** AAP 2.7 capabilities —
+controller, EDA, and hub. The natural next step Red Hat has announced is the
+**Automation Orchestrator**, introduced as a **technology preview** at Red Hat
+Summit (May 2026) and slated to become available later in 2026 (roadmapped for
+Q3, separate from the 2.7 platform GA). It is **not** part of the GA 2.7
+operator install, so it is intentionally **not** wired into this lab.
+
+What it is, and why it matters here:
+
+- **A multi-mode workflow canvas.** The Orchestrator lets you design workflows
+  that combine *deterministic* automation (run a playbook), *event-driven*
+  automation (react to a signal — exactly what the EDA rulebook in this lab
+  does), and *AI-driven* steps (an agent investigates and recommends) on a
+  single canvas. If you've used a visual workflow builder like n8n, the canvas
+  will feel familiar — but the purpose is narrower and more governed.
+- **Governance is the point.** Whether an action originates from a human, an
+  event, or an AI agent, it flows through the *same* RBAC checks, approval
+  gates, and audit trail. Red Hat positions it as a "trusted execution layer"
+  that routes AI-agent intent through human-approved, validated playbooks rather
+  than letting agents act directly.
+- **This lab is the foundation it builds on.** The detect → event → remediate →
+  audit pattern demonstrated here is precisely the kind of governed, event-driven
+  workflow the Orchestrator is designed to compose with AI-driven steps. Stand
+  up this lab today; the Orchestrator becomes the layer that unifies it with
+  agentic workflows when it ships.
+
+> Status caveat: technology-preview features are not supported for production and
+> may change before GA. Treat this section as forward-looking context for the
+> consolidation story, not as something deployable from this repo today. Verify
+> current status in the
+> [AAP 2.7 release notes](https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.7).
 
 ## License
 

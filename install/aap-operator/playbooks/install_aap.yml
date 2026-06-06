@@ -5,7 +5,7 @@
 # on an OpenShift Container Platform Single Node (tested target: OCP 4.21 SNO).
 #
 # What it does:
-#   1. Applies the operator Subscription (channel stable-2.6).
+#   1. Applies the operator Subscription (channel stable-2.7).
 #   2. Waits for the operator CSV to reach 'Succeeded'.
 #   3. Applies the AnsibleAutomationPlatform CR (controller + EDA + hub).
 #   4. Waits for the gateway to come up.

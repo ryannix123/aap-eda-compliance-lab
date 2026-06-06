@@ -1,7 +1,7 @@
 ---
 # 01-operator-subscription.yaml
 # Installs the Ansible Automation Platform Operator from the redhat-operators
-# catalog into a dedicated namespace. Channel stable-2.6 brings the unified
+# catalog into a dedicated namespace. Channel stable-2.7 brings the unified
 # platform gateway (controller + EDA + hub under one CR).
 
 apiVersion: v1
@@ -25,7 +25,7 @@ metadata:
   name: ansible-automation-platform-operator
   namespace: aap
 spec:
-  channel: stable-2.6
+  channel: stable-2.7
   name: ansible-automation-platform-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
