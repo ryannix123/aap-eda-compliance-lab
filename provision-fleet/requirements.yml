@@ -1,0 +1,6 @@
+---
+# requirements.yml
+collections:
+  - name: community.general
+    version: ">=8.0.0"
+# Python deps (install separately): pip install proxmoxer requests

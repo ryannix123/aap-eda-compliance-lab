@@ -1,0 +1,44 @@
+---
+# tasks/remove_operator.yml
+#
+# Removes an operator's Subscription and ClusterServiceVersion by a name
+# substring match (op_name_match). Idempotent: does nothing if already gone.
+# CSVs are namespaced; this finds them across all namespaces and removes each.
+#
+# Required var:
+#   op_name_match — substring to match in the Subscription/CSV name
+#                   (e.g. "kiali", "servicemeshoperator3", "advanced-cluster-management")
+
+- name: "{{ op_name_match }} | Find matching subscriptions (all namespaces)"
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+  register: _subs
+
+- name: "{{ op_name_match }} | Delete matching subscriptions"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ item.metadata.namespace }}"
+  loop: "{{ _subs.resources | selectattr('metadata.name', 'search', op_name_match) | list }}"
+  loop_control:
+    label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"
+
+- name: "{{ op_name_match }} | Find matching CSVs (all namespaces)"
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+  register: _csvs
+
+- name: "{{ op_name_match }} | Delete matching CSVs"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ item.metadata.namespace }}"
+  loop: "{{ _csvs.resources | selectattr('metadata.name', 'search', op_name_match) | list }}"
+  loop_control:
+    label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"

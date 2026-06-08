@@ -1,0 +1,217 @@
+---
+# reclaim_capacity.yml
+#
+# Homelab capacity-reclaim utility. Cleanly removes operators that are pure
+# overhead on a single-node OpenShift lab so heavier workloads (e.g. the AAP
+# automation controller) can schedule. By default it removes:
+#
+#   - Advanced Cluster Management (ACM) + MultiCluster Engine (MCE)
+#   - Red Hat OpenShift Service Mesh 3 (Istio)
+#   - Kiali
+#
+# It is SAFE TO RE-RUN: every step skips anything already gone. It removes
+# OPERANDS (the custom resources) first, waits for their workloads to drain,
+# then removes the Subscription and CSV — the finalizer-safe order that avoids
+# stuck "Terminating" namespaces.
+#
+# Prereqs: oc logged in as cluster-admin; kubernetes.core collection; the
+# `kubernetes` python package. Uses your kubeconfig.
+#
+# Run:
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook reclaim_capacity.yml
+#
+# Selectively skip a stack (e.g. keep Service Mesh because OpenEMR uses it):
+#   ansible-playbook reclaim_capacity.yml -e remove_service_mesh=false -e remove_kiali=false
+#
+# WARNING: This deletes operators and their managed resources. Do not run it
+# against a cluster where these stacks are in real use. Intended for a lab.
+
+- name: Reclaim node capacity by removing unused operators
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    remove_acm: true
+    remove_service_mesh: true
+    remove_kiali: true
+    drain_timeout: 240          # seconds to wait for operand pods to clear
+    drain_delay: 10
+
+  tasks:
+    # =========================================================================
+    # 1. ACM / MCE  — operands first (MultiClusterHub, then MultiClusterEngine)
+    # =========================================================================
+    - name: ACM | Find MultiClusterHub operands (if CRD present)
+      kubernetes.core.k8s_info:
+        api_version: operator.open-cluster-management.io/v1
+        kind: MultiClusterHub
+      register: _mch
+      when: remove_acm | bool
+      failed_when: false   # CRD may not exist; treat as "none found"
+
+    - name: ACM | Remove MultiClusterHub operands
+      kubernetes.core.k8s:
+        state: absent
+        api_version: operator.open-cluster-management.io/v1
+        kind: MultiClusterHub
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+        wait: true
+        wait_timeout: "{{ drain_timeout }}"
+      loop: "{{ _mch.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"
+      when: remove_acm | bool
+
+    - name: ACM | Find MultiClusterEngine operands (if CRD present)
+      kubernetes.core.k8s_info:
+        api_version: multicluster.openshift.io/v1
+        kind: MultiClusterEngine
+      register: _mce
+      when: remove_acm | bool
+      failed_when: false
+
+    - name: ACM | Remove MultiClusterEngine operands
+      kubernetes.core.k8s:
+        state: absent
+        api_version: multicluster.openshift.io/v1
+        kind: MultiClusterEngine
+        name: "{{ item.metadata.name }}"
+        wait: true
+        wait_timeout: "{{ drain_timeout }}"
+      loop: "{{ _mce.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: remove_acm | bool
+
+    - name: ACM | Remove operator subscriptions and CSVs
+      ansible.builtin.include_tasks: tasks/remove_operator.yml
+      vars:
+        op_name_match: "{{ item }}"
+      loop:
+        - advanced-cluster-management
+        - multicluster-engine
+      when: remove_acm | bool
+
+    - name: ACM | Remove leftover namespaces
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+        wait: false
+      loop:
+        - open-cluster-management
+        - multicluster-engine
+        - hive
+      when: remove_acm | bool
+      ignore_errors: true
+
+    # =========================================================================
+    # 2. Service Mesh 3 (Istio) — operand (Istio CR) first, then operator
+    # =========================================================================
+    - name: Mesh | Find Istio operands (if CRD present)
+      kubernetes.core.k8s_info:
+        api_version: sailoperator.io/v1
+        kind: Istio
+      register: _istio
+      when: remove_service_mesh | bool
+      failed_when: false
+
+    - name: Mesh | Remove Istio operands
+      kubernetes.core.k8s:
+        state: absent
+        api_version: sailoperator.io/v1
+        kind: Istio
+        name: "{{ item.metadata.name }}"
+        wait: true
+        wait_timeout: "{{ drain_timeout }}"
+      loop: "{{ _istio.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: remove_service_mesh | bool
+
+    - name: Mesh | Find legacy ServiceMeshControlPlane operands (if CRD present)
+      kubernetes.core.k8s_info:
+        api_version: maistra.io/v2
+        kind: ServiceMeshControlPlane
+      register: _smcp
+      when: remove_service_mesh | bool
+      failed_when: false
+
+    - name: Mesh | Remove legacy ServiceMeshControlPlane operands (if any)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: maistra.io/v2
+        kind: ServiceMeshControlPlane
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+        wait: true
+        wait_timeout: "{{ drain_timeout }}"
+      loop: "{{ _smcp.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"
+      when: remove_service_mesh | bool
+
+    - name: Mesh | Remove operator subscription and CSV
+      ansible.builtin.include_tasks: tasks/remove_operator.yml
+      vars:
+        op_name_match: "servicemeshoperator3"
+      when: remove_service_mesh | bool
+
+    # =========================================================================
+    # 3. Kiali — operand (Kiali CR) first, then operator
+    # =========================================================================
+    - name: Kiali | Find Kiali operands (if CRD present)
+      kubernetes.core.k8s_info:
+        api_version: kiali.io/v1alpha1
+        kind: Kiali
+      register: _kiali
+      when: remove_kiali | bool
+      failed_when: false
+
+    - name: Kiali | Remove Kiali operands
+      kubernetes.core.k8s:
+        state: absent
+        api_version: kiali.io/v1alpha1
+        kind: Kiali
+        name: "{{ item.metadata.name }}"
+        namespace: "{{ item.metadata.namespace }}"
+        wait: true
+        wait_timeout: "{{ drain_timeout }}"
+      loop: "{{ _kiali.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.metadata.namespace }}/{{ item.metadata.name }}"
+      when: remove_kiali | bool
+
+    - name: Kiali | Remove operator subscription and CSV
+      ansible.builtin.include_tasks: tasks/remove_operator.yml
+      vars:
+        op_name_match: "kiali"
+      when: remove_kiali | bool
+
+    # =========================================================================
+    # 4. Report freed capacity
+    # =========================================================================
+    - name: Show node allocation after reclaim
+      ansible.builtin.command:
+        cmd: oc describe node
+      register: _node_desc
+      changed_when: false
+
+    - name: Display allocated-resources summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ _node_desc.stdout
+             | regex_search('Allocated resources:[\s\S]{0,400}')
+             | default('Run: oc describe node | grep -A5 \"Allocated resources\"') }}
+
+    - name: Reminder
+      ansible.builtin.debug:
+        msg:
+          - "Capacity reclaim complete."
+          - "If the AAP controller was pending, give it a minute, then check:"
+          - "  oc get pods -n aap | grep aap-controller"
+          - "If a namespace is stuck Terminating, see tasks/clear_stuck_namespace.yml"

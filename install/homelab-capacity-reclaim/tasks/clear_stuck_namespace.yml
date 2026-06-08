@@ -1,0 +1,65 @@
+---
+# tasks/clear_stuck_namespace.yml  (standalone helper playbook)
+#
+# If a namespace hangs in "Terminating" after operator removal, it's almost
+# always an orphaned operand CR holding a finalizer. This clears the namespace
+# finalizer so it can complete deletion.
+#
+# Use ONLY when a namespace is genuinely stuck and you've confirmed its
+# workloads are gone. Forcibly clearing finalizers can orphan resources if used
+# carelessly.
+#
+# Run:
+#   ansible-playbook tasks/clear_stuck_namespace.yml -e ns=open-cluster-management
+
+- name: Clear a stuck Terminating namespace
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ns: ""   # pass with -e ns=<namespace>
+
+  tasks:
+    - name: Fail if no namespace given
+      ansible.builtin.assert:
+        that: ns | length > 0
+        fail_msg: "Pass the namespace with -e ns=<namespace>"
+
+    - name: Check the namespace phase
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ ns }}"
+      register: _ns
+
+    - name: Report and stop if not Terminating
+      ansible.builtin.debug:
+        msg: "Namespace '{{ ns }}' is not stuck (phase: {{ _ns.resources[0].status.phase | default('absent') }}). Nothing to do."
+      when: >-
+        _ns.resources | length == 0 or
+        _ns.resources[0].status.phase | default('') != 'Terminating'
+
+    - name: Look for operand CRs still holding finalizers in the namespace
+      ansible.builtin.debug:
+        msg:
+          - "Before clearing the namespace finalizer, check for stuck operands:"
+          - "  oc api-resources --verbs=list --namespaced -o name | xargs -n1 oc get -n {{ ns }} --ignore-not-found 2>/dev/null | grep -v '^$'"
+          - "Remove any leftover CRs first; only then clear the namespace finalizer below."
+      when:
+        - _ns.resources | length > 0
+        - _ns.resources[0].status.phase | default('') == 'Terminating'
+
+    - name: Clear the namespace spec.finalizers via the finalize subresource
+      # Equivalent to the well-known `kubectl ... /finalize` trick, done through
+      # the k8s module by patching spec.finalizers to empty.
+      kubernetes.core.k8s:
+        state: patched
+        api_version: v1
+        kind: Namespace
+        name: "{{ ns }}"
+        definition:
+          spec:
+            finalizers: []
+      when:
+        - _ns.resources | length > 0
+        - _ns.resources[0].status.phase | default('') == 'Terminating'

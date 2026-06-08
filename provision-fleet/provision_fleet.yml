@@ -1,0 +1,150 @@
+---
+# provision_fleet.yml
+#
+# Clones the cloud-image templates (created once by create-templates.sh) into
+# the three Linux demo VMs and configures each via cloud-init: hostname, static
+# IP, the automation user, and your SSH public key. Then waits for SSH.
+#
+# This is the Day-0 provisioning story you're selling — the same Ansible that
+# will manage the fleet also *creates* it. The Windows VM is built by hand once
+# (see README); this playbook handles RHEL/Ubuntu/SUSE.
+#
+# Idempotent: proxmox_kvm with state=present won't re-clone a VM that exists.
+#
+# PREREQUISITES (control node):
+#   - collections: community.general  (see requirements.yml)
+#   - python: proxmoxer, requests   (pip install proxmoxer requests)
+#   - A Proxmox API token (see README for creating one)
+#
+# Provide values at runtime (do NOT commit them). Simplest (password auth):
+#   ansible-playbook provision_fleet.yml \
+#     -e proxmox_api_host=192.168.1.5 \
+#     -e proxmox_node=pve \
+#     -e proxmox_api_user='root@pam' \
+#     -e proxmox_api_password='yourRootPassword' \
+#     -e ssh_pubkey="$(cat ~/.ssh/id_ed25519.pub)"
+#
+# Or with an API token instead of a password (see README to create one):
+#   ... -e proxmox_api_user='automation@pve' \
+#       -e proxmox_api_token_id='ansible' \
+#       -e proxmox_api_token_secret='xxxxxxxx-xxxx-...'
+
+- name: Provision the Linux demo fleet on Proxmox
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    proxmox_node: "{{ proxmox_node | default('pve') }}"   # your Proxmox node name
+    storage: "{{ storage | default('local-lvm') }}"
+    bridge: "{{ bridge | default('vmbr0') }}"
+    # Network for cloud-init. Adjust to your flat VLAN.
+    net_gw: "{{ net_gw | default('192.168.1.1') }}"
+    net_cidr: "{{ net_cidr | default('24') }}"
+    ci_user: "{{ ci_user | default('ansible') }}"
+
+    # --- Auth ----------------------------------------------------------------
+    # Two ways to authenticate, pick one (no Proxmox token setup required):
+    #
+    #  A) PASSWORD (simplest for a lab — zero token setup):
+    #       -e proxmox_api_user='root@pam' -e proxmox_api_password='yourRootPass'
+    #
+    #  B) API TOKEN (better practice; create it once per provision-fleet README):
+    #       -e proxmox_api_user='automation@pve' \
+    #       -e proxmox_api_token_id='ansible' \
+    #       -e proxmox_api_token_secret='xxxx-...'
+    #
+    # Each proxmox_kvm task below uses `| default(omit)` on the optional fields,
+    # so whichever set you don't supply is simply dropped.
+
+    # The fleet: each clones from a template VMID into a new VMID with a static IP.
+    fleet:
+      - { name: "rhel9-demo",   newid: 201, template: 9000, ip: "192.168.1.11" }
+      - { name: "ubuntu-demo",  newid: 202, template: 9001, ip: "192.168.1.12" }
+      - { name: "suse-demo",    newid: 203, template: 9002, ip: "192.168.1.13" }
+
+  tasks:
+    - name: Validate required vars were provided
+      ansible.builtin.assert:
+        that:
+          - proxmox_api_host is defined
+          - proxmox_api_user is defined
+          - (proxmox_api_password is defined) or
+            (proxmox_api_token_id is defined and proxmox_api_token_secret is defined)
+          - ssh_pubkey is defined and ssh_pubkey | length > 0
+        fail_msg: >-
+          Missing required -e vars. Need: proxmox_api_host, proxmox_api_user,
+          ssh_pubkey, and EITHER proxmox_api_password OR
+          (proxmox_api_token_id + proxmox_api_token_secret). See the README.
+
+    - name: Clone each template into a demo VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password | default(omit) }}"
+        api_token_id: "{{ proxmox_api_token_id | default(omit) }}"
+        api_token_secret: "{{ proxmox_api_token_secret | default(omit) }}"
+        node: "{{ proxmox_node }}"
+        clone: "{{ item.template }}"      # source template VMID
+        newid: "{{ item.newid }}"
+        name: "{{ item.name }}"
+        full: true
+        storage: "{{ storage }}"
+        timeout: 300
+        state: present
+      loop: "{{ fleet }}"
+      loop_control:
+        label: "{{ item.name }} (from {{ item.template }})"
+
+    - name: Configure cloud-init (user, SSH key, static IP) on each VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password | default(omit) }}"
+        api_token_id: "{{ proxmox_api_token_id | default(omit) }}"
+        api_token_secret: "{{ proxmox_api_token_secret | default(omit) }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.newid }}"
+        ciuser: "{{ ci_user }}"
+        sshkeys: "{{ ssh_pubkey }}"
+        ipconfig:
+          ipconfig0: "ip={{ item.ip }}/{{ net_cidr }},gw={{ net_gw }}"
+        # Give the demo VMs a little more than the template defaults
+        cores: 2
+        memory: 4096
+        update: true
+      loop: "{{ fleet }}"
+      loop_control:
+        label: "{{ item.name }} -> {{ item.ip }}"
+
+    - name: Start each VM
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_password: "{{ proxmox_api_password | default(omit) }}"
+        api_token_id: "{{ proxmox_api_token_id | default(omit) }}"
+        api_token_secret: "{{ proxmox_api_token_secret | default(omit) }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item.newid }}"
+        state: started
+      loop: "{{ fleet }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Wait for SSH on each VM (cloud-init takes ~30-90s on first boot)
+      ansible.builtin.wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        timeout: 300
+        delay: 20
+      loop: "{{ fleet }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.ip }})"
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Fleet provisioned and reachable on SSH:"
+          - "{{ fleet | map(attribute='name') | zip(fleet | map(attribute='ip')) | list }}"
+          - "User: {{ ci_user }} (your SSH key installed)"
+          - "Next: add these IPs to compliance-demo/inventory/hosts.ini and build the Windows VM by hand."

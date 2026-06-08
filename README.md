@@ -68,6 +68,10 @@ aap-eda-compliance-lab/
 │   ├── README.md
 │   ├── manifests/                     ← operator Subscription + AAP CR (EDA on)
 │   └── playbooks/install_aap.yml      ← automated install + access details
+├── provision-fleet/                   ← create the managed-host VMs on Proxmox
+│   ├── README.md                      ← API token + cloud-image setup
+│   ├── create-templates.sh            ← one-time: qcow2 → Proxmox templates
+│   └── provision_fleet.yml            ← clone + cloud-init the Linux fleet
 ├── compliance-demo/                   ← the cross-platform compliance content
 │   ├── README.md                      ← demo flow, slide-9 storyboard mapping
 │   ├── roles/enforce_security_baseline/   ← OS-dispatching role (linux.yml/windows.yml)
@@ -85,9 +89,10 @@ aap-eda-compliance-lab/
 Three phases. Do them in order.
 
 ### 1. Build the managed-host fleet (Proxmox)
-Follow [`docs/proxmox-build-sheet.md`](docs/proxmox-build-sheet.md) to create and
-prep `rhel9-demo`, `ubuntu-demo`, `suse-demo`, and `win2022-demo`, then fill in
-their IPs in `compliance-demo/inventory/hosts.ini`.
+Provision the three Linux VMs automatically with cloud images + cloud-init over
+the Proxmox API — see [`provision-fleet/`](provision-fleet/README.md). Build the
+one Windows VM by hand per [`docs/proxmox-build-sheet.md`](docs/proxmox-build-sheet.md).
+Then fill in the four IPs in `compliance-demo/inventory/hosts.ini`.
 
 ### 2. Install AAP-with-EDA (OCP SNO)
 ```bash

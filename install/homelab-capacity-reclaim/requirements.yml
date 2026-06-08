@@ -1,0 +1,6 @@
+---
+# requirements.yml
+collections:
+  - name: kubernetes.core
+    version: ">=3.0.0"
+# Python dependency: pip install kubernetes
